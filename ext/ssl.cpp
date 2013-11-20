@@ -120,10 +120,11 @@ static void InitializeDefaultCredentials()
 SslContext_t::SslContext_t
 **************************/
 
-SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile, int ssl_version, const string &cipherlist):
+SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const string &certchainfile, const string &dhparamsfile, int ssl_version, const string &cipherlist):
 	pCtx (NULL),
 	PrivateKey (NULL),
-	Certificate (NULL)
+	Certificate (NULL),
+	DHParams (NULL)
 {
 	/* TODO: the usage of the specified private-key and cert-chain filenames only applies to
 	 * client-side connections at this point. Server connections currently use the default materials.
@@ -164,7 +165,7 @@ SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const str
 	if (!pCtx)
 		throw std::runtime_error ("no SSL context");
 
-	SSL_CTX_set_options (pCtx, SSL_OP_ALL);
+	SSL_CTX_set_options (pCtx, SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_SINGLE_DH_USE);
 	//SSL_CTX_set_options (pCtx, (SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3));
 #ifdef SSL_MODE_RELEASE_BUFFERS
 	SSL_CTX_set_mode (pCtx, SSL_MODE_RELEASE_BUFFERS);
@@ -186,6 +187,22 @@ SslContext_t::SslContext_t (bool is_server, const string &privkeyfile, const str
 			e = SSL_CTX_use_certificate (pCtx, DefaultCertificate);
 		if (e <= 0) ERR_print_errors_fp(stderr);
 		assert (e > 0);
+
+		if (dhparamsfile.length() > 0) {
+			FILE *dhfile = fopen(dhparamsfile.c_str(), "r");
+			if (dhfile) {
+				DHParams = PEM_read_DHparams(dhfile, NULL, NULL, NULL);
+				if (DHParams) {
+					e = SSL_CTX_set_tmp_dh(pCtx, DHParams);
+					if (e <= 0) ERR_print_errors_fp(stderr);
+				} else {
+					ERR_print_errors_fp(stderr);
+				}
+				fclose(dhfile);
+			} else {
+				fprintf(stderr, "Cannot read dhparams file %s: %s\n", dhparamsfile.c_str(), strerror(errno));
+			}
+		}
 	}
 
         if (cipherlist.length() > 0)
@@ -226,6 +243,8 @@ SslContext_t::~SslContext_t()
 		EVP_PKEY_free (PrivateKey);
 	if (Certificate)
 		X509_free (Certificate);
+	if (DHParams)
+		DH_free (DHParams);
 }
 
 
@@ -234,7 +253,7 @@ SslContext_t::~SslContext_t()
 SslBox_t::SslBox_t
 ******************/
 
-SslBox_t::SslBox_t (bool is_server, const string &privkeyfile, const string &certchainfile, bool verify_peer, int ssl_version, const string &cipherlist, const unsigned long binding):
+SslBox_t::SslBox_t (bool is_server, const string &privkeyfile, const string &certchainfile, const string &dhparamsfile, bool verify_peer, int ssl_version, const string &cipherlist, const unsigned long binding):
 	bIsServer (is_server),
 	bHandshakeCompleted (false),
 	bVerifyPeer (verify_peer),
@@ -247,7 +266,7 @@ SslBox_t::SslBox_t (bool is_server, const string &privkeyfile, const string &cer
 	 * a new one every time we come here.
 	 */
 
-	Context = new SslContext_t (bIsServer, privkeyfile, certchainfile, ssl_version, cipherlist);
+	Context = new SslContext_t (bIsServer, privkeyfile, certchainfile, dhparamsfile, ssl_version, cipherlist);
 	assert (Context);
 
 	pbioRead = BIO_new (BIO_s_mem());
@@ -270,6 +289,104 @@ SslBox_t::SslBox_t (bool is_server, const string &privkeyfile, const string &cer
 		SSL_connect (pSSL);
 }
 
+// OpenSSL callback function used to switch the SSL context that should be used
+// based on the hostname supplied by an SNI-capable client.
+static int ssl_callback_ServerNameIndication(SSL *ssl, int *ad, void *sslbox)
+{
+	const char *hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	assert(sslbox);
+
+	// This means the client does not support SNI or did not supply a hostname.
+	// We'll keep using the certs that have been configured
+	if (!hostname) {
+		return SSL_TLSEXT_ERR_NOACK; // mirroring the behavior of apache2
+	}
+
+	return ((SslBox_t *) sslbox)->UpdateContextForHostname(string(hostname));
+}
+
+
+int SslBox_t::UpdateContextForHostname(const string &hostname)
+{
+	SslContext_t *matchingContext = NULL;
+
+	cout << "Updating SSL context for hostname: " << hostname << "\n";
+	cout << "Certificate configs are: " << Contexts.size() << "\n";
+
+	// Iterate through the hostname keys we have in Contexts and see which ones
+	// match, taking into account a global cert and prefix matches to handle wildcard SSL certs.
+	for (map<string, SslContext_t *>::iterator it = Contexts.begin(); it != Contexts.end(); ++it) {
+		string host_match = it->first;
+		if ((host_match == "*" && !matchingContext) || hostname.find(host_match) != string::npos) {
+			cout << "Will use certificate matching: [" << host_match << "] to satisfy [" << hostname << "]\n";
+			matchingContext = it->second;
+		}
+	}
+	cout << "Certificate config is: " << matchingContext << "\n";
+
+	if (matchingContext) {
+		SSL_set_SSL_CTX(pSSL, matchingContext->pCtx);
+		return SSL_TLSEXT_ERR_OK;
+	}
+
+	cout << "No config for host " << hostname << ", using config that was already set.\n";
+	return SSL_TLSEXT_ERR_OK; // use the default configured host
+}
+
+SslBox_t::SslBox_t (bool is_server, std::map<string, std::map<string, string> > hostcontexts, bool verify_peer, int ssl_version, const unsigned long binding):
+	bIsServer (is_server),
+	bHandshakeCompleted (false),
+	bVerifyPeer (verify_peer),
+	bSslVersion (ssl_version),
+	pSSL (NULL),
+	pbioRead (NULL),
+	pbioWrite (NULL)
+{
+	SSL_CTX *defaultContext = NULL;
+
+	for (std::map<string, std::map<string, string> >::iterator it = hostcontexts.begin(); it != hostcontexts.end(); ++it) {
+		std::map<string, string> config = it->second;
+		SslContext_t *context = new SslContext_t(bIsServer, config["privkey_filename"], config["certchain_filename"], config["dhparams_filename"],
+		                                         bSslVersion, config["cipherlist"]);
+		assert(context);
+		if (!defaultContext) {
+			defaultContext = context->pCtx;
+		}
+		cout << "Setting Contexts value for key=" << it->first << "\n";
+		Contexts.insert(std::pair<string, SslContext_t *>(it->first, context));
+		cout << "Processed data, setting up callback\n";
+
+		// Have our callback get notified of which certificate context it should use
+		SSL_CTX_set_tlsext_servername_callback(context->pCtx, ssl_callback_ServerNameIndication);
+		SSL_CTX_set_tlsext_servername_arg(context->pCtx, this);
+	}
+
+	// Use a fallback configuration by default, otherwise use the first context by default
+	std::map<string, SslContext_t *>::iterator defaultCertConfig = Contexts.find("*");
+	if (defaultCertConfig != Contexts.end()) {
+		defaultContext = defaultCertConfig->second->pCtx;
+	}
+
+	pbioRead = BIO_new (BIO_s_mem());
+	assert (pbioRead);
+
+	pbioWrite = BIO_new (BIO_s_mem());
+	assert (pbioWrite);
+
+	assert(defaultContext);
+	pSSL = SSL_new (defaultContext);
+	assert (pSSL);
+	SSL_set_bio (pSSL, pbioRead, pbioWrite);
+
+	// Store a pointer to the binding signature in the SSL object so we can retrieve it later
+	SSL_set_ex_data(pSSL, 0, (void*) binding);
+
+	if (bVerifyPeer)
+		SSL_set_verify(pSSL, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, ssl_verify_wrapper);
+
+	if (!bIsServer)
+		SSL_connect (pSSL);
+}
 
 
 /*******************

@@ -421,7 +421,7 @@ module EventMachine
     #
     # @see #ssl_verify_peer
     def start_tls args={}
-      priv_key, cert_chain, verify_peer, ssl_version, cipher_list = args.values_at(:private_key_file, :cert_chain_file, :verify_peer, :ssl_version, :cipher_list)
+      priv_key, cert_chain, dhparams, verify_peer, ssl_version, cipher_list = args.values_at(:private_key_file, :cert_chain_file, :dhparams_file, :verify_peer, :ssl_version, :cipher_list)
 
       [priv_key, cert_chain].each do |file|
         next if file.nil? or file.empty?
@@ -440,7 +440,19 @@ module EventMachine
         else         ; raise "invalid value #{ssl_version.inspect} for :ssl_version"
       end
 
-      EventMachine::set_tls_parms(@signature, priv_key || '', cert_chain || '', verify_peer, ssl_version, cipher_list || '')
+      hosts = args[:hosts] || {}
+
+      # validate that any specified keys and certificates are present
+      ([args] + hosts.values).each do |ssl|
+        [ssl[:private_key_file], ssl[:cert_chain_file]].each do |file|
+          next if file.nil? or file.empty?
+          raise FileNotFoundException,
+          "Could not find #{file} for start_tls" unless File.exists? file
+        end
+      end
+
+      EventMachine::set_tls_parms(@signature, priv_key || '', cert_chain || '', dhparams || '', verify_peer, ssl_version, cipher_list || '')
+      EventMachine::set_tls_hosts(@signature, hosts) if hosts.size > 0
       EventMachine::start_tls @signature
     end
 
