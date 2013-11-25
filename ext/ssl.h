@@ -76,6 +76,8 @@ class SslBox_t
 
 	protected:
 		SslContext_t *Context;
+		map<string, SslContext_t *> Contexts;
+
 
 		bool bIsServer;
 		bool bHandshakeCompleted;
