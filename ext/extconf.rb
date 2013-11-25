@@ -46,7 +46,7 @@ if ENV['CROSS_COMPILING']
     FileUtils.mkdir_p Dir.pwd+"/openssl/"
     FileUtils.cp Dir[openssl_dir+"/include/openssl/*.h"], Dir.pwd+"/openssl/", :verbose => true
     FileUtils.cp Dir[openssl_dir+"/lib*.a"], Dir.pwd, :verbose => true
-    $INCFLAGS << " -I#{Dir.pwd}" # for the openssl headers
+    $INCFLAGS << " -I-I/usr/local/openssl/include/openssl/ -I#{Dir.pwd}" # for the openssl headers
   else
     STDERR.puts
     STDERR.puts "**************************************************************************************"
@@ -136,7 +136,7 @@ when /linux/
   add_define 'HAVE_EPOLL' if have_func('epoll_create', 'sys/epoll.h')
 
   # on Unix we need a g++ link, not gcc.
-  CONFIG['LDSHARED'] = "$(CXX) -I/usr/local/openssl/include/openssl/ -shared"
+  CONFIG['LDSHARED'] = "$(CXX) -shared"
 
 when /aix/
   CONFIG['LDSHARED'] = "$(CXX) -shared -Wl,-G -Wl,-brtl"
