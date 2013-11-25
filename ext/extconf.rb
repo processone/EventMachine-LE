@@ -136,7 +136,7 @@ when /linux/
   add_define 'HAVE_EPOLL' if have_func('epoll_create', 'sys/epoll.h')
 
   # on Unix we need a g++ link, not gcc.
-  CONFIG['LDSHARED'] = "$(CXX) -shared"
+  CONFIG['LDSHARED'] = "$(CXX) -I/usr/local/openssl/include/openssl/ -shared"
 
 when /aix/
   CONFIG['LDSHARED'] = "$(CXX) -shared -Wl,-G -Wl,-brtl"
