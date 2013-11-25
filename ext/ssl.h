@@ -71,6 +71,8 @@ class SslBox_t
 		bool IsHandshakeCompleted() {return bHandshakeCompleted;}
 
 		X509 *GetPeerCert();
+		const char *GetServerNameIndication();
+        int UpdateContextForHostname(const string &hostname);
 
 		void Shutdown();
 
