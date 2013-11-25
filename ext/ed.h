@@ -248,6 +248,8 @@ class ConnectionDescriptor: public EventableDescriptor
                 int bSslVersion;
                 std::string CipherList;
 		bool bSslPeerAccepted;
+
+        std::map<string, std::map<string, string> > HostCertificates;
 		#endif
 
 		#ifdef HAVE_KQUEUE
