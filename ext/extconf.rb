@@ -28,7 +28,6 @@ def manual_ssl_config
     :mswin => [%w[ssleay32 eay32], %w[openssl/ssl.h openssl/err.h]],
   }
 
-  ENV['OPENSSL'] = '/usr/local/openssl/include/openssl/'
   dc_flags = ['ssl']
   dc_flags += ["#{ENV['OPENSSL']}/include", ENV['OPENSSL']] if /linux/ =~ RUBY_PLATFORM and ENV['OPENSSL']
 
@@ -136,6 +135,7 @@ when /darwin/
 when /linux/
   add_define 'HAVE_EPOLL' if have_func('epoll_create', 'sys/epoll.h')
 
+  CONFIG['CFLAGS'] << "-I /usr/local/openssl/include/openssl/"
   # on Unix we need a g++ link, not gcc.
   CONFIG['LDSHARED'] = "$(CXX) -shared"
 
