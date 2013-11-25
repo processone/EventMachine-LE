@@ -28,6 +28,7 @@ def manual_ssl_config
     :mswin => [%w[ssleay32 eay32], %w[openssl/ssl.h openssl/err.h]],
   }
 
+  ENV['OPENSSL'] = '/usr/local/openssl/include/openssl/'
   dc_flags = ['ssl']
   dc_flags += ["#{ENV['OPENSSL']}/include", ENV['OPENSSL']] if /linux/ =~ RUBY_PLATFORM and ENV['OPENSSL']
 
@@ -46,7 +47,7 @@ if ENV['CROSS_COMPILING']
     FileUtils.mkdir_p Dir.pwd+"/openssl/"
     FileUtils.cp Dir[openssl_dir+"/include/openssl/*.h"], Dir.pwd+"/openssl/", :verbose => true
     FileUtils.cp Dir[openssl_dir+"/lib*.a"], Dir.pwd, :verbose => true
-    $INCFLAGS << " -I-I/usr/local/openssl/include/openssl/ -I#{Dir.pwd}" # for the openssl headers
+    $INCFLAGS << " -I#{Dir.pwd}" # for the openssl headers
   else
     STDERR.puts
     STDERR.puts "**************************************************************************************"
