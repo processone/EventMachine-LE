@@ -8,9 +8,9 @@ else
 end
 
 Gem::Specification.new do |s|
-  s.name = "eventmachine-le"
+  s.name = "eventmachine"
   s.version = EventMachine::VERSION
-  s.homepage = "https://github.com/ibc/EventMachine-LE/"
+  s.homepage = "https://github.com/processone/EventMachine-LE"
   s.licenses = ["Ruby", "GPL"]
 
   s.authors = ["Francis Cianfrocca", "Aman Gupta", "hacked by Carsten Bormann and Inaki Baz Castillo"]
@@ -38,6 +38,6 @@ EventMachine-LE draws from a number of dormant pull requests on the mainline ver
 This is not a \"development branch\", EventMachine-LE is ready for production, just beyond the focus of mainline EventMachine.
 "
 
-  s.rdoc_options = ["--title", "EventMachine-LE", "--main", "README.md", "-x", "lib/em/version"]
+  s.rdoc_options = ["--title", "EventMachine", "--main", "README.md", "-x", "lib/em/version"]
   s.extra_rdoc_files = ["README.md"] + `git ls-files`.split("\n")
 end
