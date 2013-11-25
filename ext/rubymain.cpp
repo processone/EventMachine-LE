@@ -19,6 +19,7 @@ See the file COPYING for complete licensing information.
 
 #include "project.h"
 #include "eventmachine.h"
+#include <st.h>
 #include <ruby.h>
 
 #ifndef RFLOAT_VALUE
